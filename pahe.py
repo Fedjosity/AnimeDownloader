@@ -624,43 +624,102 @@ def dl_apahe2(url: str) -> str:
 
 # print(dl_apahe2("https://pahe.win/HVLTy"))
 
-def download_file(url, destination):
-    if os.path.exists(destination):
-        file_size = os.path.getsize(destination)
-    else:
-        file_size = 0
+def download_file(url, destination, max_retries=5):
+    """
+    Download a file with retry logic and resume capability.
+    
+    Parameters:
+    url (str): The URL to download from
+    destination (str): The destination file path
+    max_retries (int): Maximum number of retry attempts (default: 5)
+    """
+    import time
+    import requests.exceptions
+    
+    retry_count = 0
+    while retry_count < max_retries:
+        try:
+            if os.path.exists(destination):
+                file_size = os.path.getsize(destination)
+            else:
+                file_size = 0
 
-    global USE_PLAYWRIGHT, USE_CURL_CFFI, playwright_context
-    headers = {'Range': f'bytes={file_size}-'} if file_size else None
-    # For downloads, use regular requests (playwright not ideal for streaming)
-    if USE_PLAYWRIGHT:
-        # Use requests for downloads even if playwright is available
-        import requests as req_lib
-        # Convert Playwright cookies to requests format
-        cookies_dict = {}
-        if playwright_context:
-            playwright_cookies = playwright_context.cookies()
-            for cookie in playwright_cookies:
-                cookies_dict[cookie['name']] = cookie['value']
-        response = req_lib.get(url, headers=headers, stream=True, cookies=cookies_dict)
-    elif USE_CURL_CFFI:
-        response = session.get(url, headers=headers, stream=True, timeout=10)
-    else:
-        response = session.get(url, headers=headers, stream=True)
-    total_size = int(response.headers.get('content-length', 0))
-    if response.status_code == 206:
-        print("Downloading resumed successfully.")
-    elif response.status_code == 200:
-        print("Downloading")
+            global USE_PLAYWRIGHT, USE_CURL_CFFI, playwright_context
+            headers = {'Range': f'bytes={file_size}-'} if file_size else None
+            # For downloads, use regular requests (playwright not ideal for streaming)
+            if USE_PLAYWRIGHT:
+                # Use requests for downloads even if playwright is available
+                import requests as req_lib
+                # Convert Playwright cookies to requests format
+                cookies_dict = {}
+                if playwright_context:
+                    playwright_cookies = playwright_context.cookies()
+                    for cookie in playwright_cookies:
+                        cookies_dict[cookie['name']] = cookie['value']
+                response = req_lib.get(url, headers=headers, stream=True, cookies=cookies_dict, timeout=(30, 300))
+            elif USE_CURL_CFFI:
+                response = session.get(url, headers=headers, stream=True, timeout=(30, 300))
+            else:
+                response = session.get(url, headers=headers, stream=True, timeout=(30, 300))
+            
+            total_size = int(response.headers.get('content-length', 0))
+            if file_size > 0:
+                total_size = file_size + total_size  # Adjust total size for resume
+            
+            if response.status_code == 206:
+                print(f"Resuming download from byte {file_size}...")
+            elif response.status_code == 200:
+                if file_size > 0:
+                    print(f"Server doesn't support resume. Starting fresh download...")
+                    os.remove(destination)
+                    file_size = 0
+                    # Retry without Range header
+                    if USE_PLAYWRIGHT:
+                        response = req_lib.get(url, stream=True, cookies=cookies_dict, timeout=(30, 300))
+                    elif USE_CURL_CFFI:
+                        response = session.get(url, stream=True, timeout=(30, 300))
+                    else:
+                        response = session.get(url, stream=True, timeout=(30, 300))
+                    total_size = int(response.headers.get('content-length', 0))
+                print("Downloading...")
+            else:
+                response.raise_for_status()
 
-    with open(destination, 'ab') as file, tqdm(
-        desc=destination,
-        total=total_size,
-        unit='B',
-        unit_scale=True,
-        unit_divisor=1024,
-    ) as bar:
-        for data in response.iter_content(chunk_size=69420):
-            bar.update(len(data))
-            file.write(data)
+            with open(destination, 'ab') as file, tqdm(
+                desc=os.path.basename(destination),
+                total=total_size,
+                initial=file_size,
+                unit='B',
+                unit_scale=True,
+                unit_divisor=1024,
+            ) as bar:
+                for data in response.iter_content(chunk_size=69420):
+                    if not data:
+                        break
+                    bar.update(len(data))
+                    file.write(data)
+                    file.flush()  # Ensure data is written immediately
+            
+            # Download completed successfully
+            return
+            
+        except (requests.exceptions.ChunkedEncodingError, 
+                requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout,
+                requests.exceptions.RequestException) as e:
+            retry_count += 1
+            if retry_count < max_retries:
+                wait_time = min(2 ** retry_count, 60)  # Exponential backoff, max 60 seconds
+                print(f"\nConnection error: {str(e)}")
+                print(f"Retrying in {wait_time} seconds... (Attempt {retry_count}/{max_retries})")
+                time.sleep(wait_time)
+            else:
+                print(f"\nFailed to download after {max_retries} attempts.")
+                raise
+        except KeyboardInterrupt:
+            print("\nDownload interrupted by user.")
+            raise
+        except Exception as e:
+            print(f"\nUnexpected error during download: {str(e)}")
+            raise
 
