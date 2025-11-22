@@ -121,9 +121,15 @@ episodes_data = pahe.dl_apahe1(anime_id=anime_id, episode_ids=episode_ids)
 
 
 # Organize episode data
+# episodes_data keys are indices (0, 1, 2, ...) corresponding to episode_ids list
+# We need to map these indices to actual episode numbers
 episodes = {}
-index = episode_range[0]
-for key, value in episodes_data.items():
+# Sort the keys to ensure we process episodes in order
+for key in sorted(episodes_data.keys()):
+    # key is the index in episode_ids list (0-based)
+    # Map it to the actual episode number
+    episode_number = episode_range[0] + key
+    value = episodes_data[key]
     sorted_links = {}
     for link_info in value:
         link, size, lang = link_info
@@ -135,8 +141,7 @@ for key, value in episodes_data.items():
         if size not in sorted_links[lang]:
             sorted_links[lang][size] = []
         sorted_links[lang][size].append(link)
-    episodes[index] = sorted_links
-    index += 1
+    episodes[episode_number] = sorted_links
 
 
 

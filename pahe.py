@@ -372,14 +372,20 @@ def mid_apahe(session_id: str , episode_range: list) -> list:
     Returns:
         list: A list of episode IDs.
     """
-    # episode_range[0]=int(episode_range[0])
-    # episode_range[1]=int(episode_range[1])
-    pages=[1,2]
-    pages[0]+=(episode_range[0]//30)
-    pages[1]+=(episode_range[1]//30)
+    # Calculate which pages we need to fetch
+    # API returns 30 episodes per page, pages start at 1
+    start_episode = episode_range[0]
+    end_episode = episode_range[1]
+    
+    # Calculate page numbers (pages are 1-indexed)
+    start_page = ((start_episode - 1) // 30) + 1
+    end_page = ((end_episode - 1) // 30) + 1
+    
     global url, USE_PLAYWRIGHT, USE_CURL_CFFI
-    data = []
-    for page in range(pages[0],pages[1]):
+    all_episodes = []  # Store all episodes in order
+    
+    # Fetch all needed pages
+    for page in range(start_page, end_page + 1):
         url2 = url + "api?m=release&id=" + session_id + "&sort=episode_asc&page="+ str(page)
         try:
             if USE_PLAYWRIGHT:
@@ -395,8 +401,8 @@ def mid_apahe(session_id: str , episode_range: list) -> list:
                 # If we got valid JSON with data field, proceed even if status code was not 200
                 if 'data' in page_data:
                     for i in page_data['data']:
-                        s = str(i['session'])
-                        data.append(s)
+                        session_id_ep = str(i['session'])
+                        all_episodes.append(session_id_ep)
                 else:
                     # Got JSON but no data field
                     if r.status_code != 200:
@@ -416,7 +422,47 @@ def mid_apahe(session_id: str , episode_range: list) -> list:
             print(f"Error: Failed to fetch page {page}. {str(e)}")
             print(f"URL: {url2}")
             continue
-    return data[(episode_range[0]%30)-1:30*(pages[1]-pages[0]-1)+episode_range[1]%30]
+    
+    # Calculate the correct slice
+    # Episodes are sorted by episode_asc, so when we fetch pages:
+    # - Page 1 has episodes 1-30 (indices 0-29 in page 1's data)
+    # - Page 2 has episodes 31-60 (indices 0-29 in page 2's data)
+    # - etc.
+    
+    # We've collected all episodes from the needed pages in order
+    # all_episodes[0] to all_episodes[29] = episodes from start_page
+    # all_episodes[30] to all_episodes[59] = episodes from start_page + 1 (if fetched)
+    # etc.
+    
+    # Calculate offset: position of start_episode within the fetched pages
+    # Example: if start_page=2, start_episode=33:
+    # - Page 2 starts at episode 31
+    # - Episode 33 is at position (33-31) = 2 in page 2
+    # - But since we're concatenating pages, we need: (start_page - start_page) * 30 + position_in_page
+    # - Which simplifies to just: position_in_page = (start_episode - 1) % 30
+    
+    # However, if we fetch multiple pages, we need to account for all previous pages
+    # Actually, since we only fetch from start_page to end_page, the offset is:
+    offset = (start_episode - 1) % 30
+    
+    # But wait - if start_page > 1, we're only fetching from start_page onwards
+    # So the offset should be relative to the first page we fetched
+    # If start_page = 2 and start_episode = 33:
+    # - We fetch page 2, which has episodes 31-60
+    # - Episode 33 is at index (33-31) = 2 in the fetched data
+    # - So offset = (start_episode - ((start_page - 1) * 30 + 1)) = (33 - 31) = 2
+    
+    # Calculate the first episode number in start_page
+    first_episode_in_start_page = ((start_page - 1) * 30) + 1
+    offset = start_episode - first_episode_in_start_page
+    
+    # Calculate how many episodes we need
+    count = end_episode - start_episode + 1
+    
+    # Extract the correct slice
+    result = all_episodes[offset:offset + count]
+    
+    return result
 
 #print(mid_apahe("e8e5a274-b2a0-ae45-de26-803004f3299b",[29,31]))
 
