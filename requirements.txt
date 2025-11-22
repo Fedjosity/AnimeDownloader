@@ -1,0 +1,8 @@
+grequests
+requests
+cloudscraper
+curl_cffi
+playwright
+tqdm
+colorama
+simple_term_menu
