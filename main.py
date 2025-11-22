@@ -53,8 +53,15 @@ selected_anime = list_of_anime[choice]
 # get the selected anime_id
 anime_id = selected_anime[6]
 
-# get the total number of episodes in the selected anime
-total_episodes = selected_anime[2]
+# get the actual total number of episodes from the release API
+print("Fetching actual episode count...")
+total_episodes = pahe.get_actual_episode_count(session_id=anime_id)
+if total_episodes == 0:
+    # Fallback to search API value if we can't get actual count
+    total_episodes = selected_anime[2]
+    print(f"Using search API episode count: {total_episodes}")
+else:
+    print(f"Actual episode count: {total_episodes}")
 
 
 # print the selected anime details to terminal
@@ -63,7 +70,7 @@ print(Fore.MAGENTA + selected_anime[0],
     " - ", selected_anime[4],
     "\n" + Fore.CYAN + "Type:", selected_anime[1],
     "\n" + Fore.YELLOW + "Rating:", + selected_anime[5], 
-    "\n" + Fore.GREEN + "Episodes:",Fore.GREEN + str(selected_anime[2])
+    "\n" + Fore.GREEN + "Episodes:",Fore.GREEN + str(total_episodes)
 )
 # reset the foreground text color
 print(Fore.RESET, end="")

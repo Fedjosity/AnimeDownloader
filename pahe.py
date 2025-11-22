@@ -203,6 +203,49 @@ def _init_session():
 # Initialize on import
 _init_session()
 
+def get_actual_episode_count(session_id: str) -> int:
+    """
+    Get the actual total number of episodes from the release API.
+    
+    Parameters:
+        session_id (str): The anime session ID.
+    
+    Returns:
+        int: The actual total number of episodes.
+    """
+    global url, USE_PLAYWRIGHT, USE_CURL_CFFI
+    url2 = url + "api?m=release&id=" + session_id + "&sort=episode_asc&page=1"
+    try:
+        if USE_PLAYWRIGHT:
+            r = session.get(url2)
+        elif USE_CURL_CFFI:
+            r = session.get(url2, timeout=10)
+        else:
+            r = session.get(url2, timeout=10)
+        
+        page_data = r.json()
+        if 'total' in page_data:
+            return page_data['total']
+        elif 'last_page' in page_data and 'per_page' in page_data:
+            # Calculate from last_page and per_page
+            # Need to get the actual count from the last page
+            last_page_url = url + "api?m=release&id=" + session_id + "&sort=episode_asc&page=" + str(page_data['last_page'])
+            if USE_PLAYWRIGHT:
+                last_page_r = session.get(last_page_url)
+            elif USE_CURL_CFFI:
+                last_page_r = session.get(last_page_url, timeout=10)
+            else:
+                last_page_r = session.get(last_page_url, timeout=10)
+            last_page_data = last_page_r.json()
+            # Calculate: (last_page - 1) * per_page + episodes on last page
+            return (page_data['last_page'] - 1) * page_data['per_page'] + len(last_page_data.get('data', []))
+        else:
+            # Fallback: count episodes in first page
+            return len(page_data.get('data', []))
+    except Exception as e:
+        # Return 0 on error, caller should handle fallback
+        return 0
+
 def search_apahe(query: str) -> list:
     """
     Search animepahe.si for anime matching the given query.
@@ -290,16 +333,25 @@ def search_apahe(query: str) -> list:
 
     clean_data = []
     try:
-        for i in anime_list:
+        print("Fetching actual episode counts for search results...")
+        for idx, i in enumerate(anime_list, 1):
             hmm = []
             hmm.append(i['title'])
             hmm.append(i['type'])
-            hmm.append(i['episodes'])
+            # Get actual episode count from release API for each anime
+            print(f"  [{idx}/{len(anime_list)}] Fetching episode count for {i['title']}...", end='\r')
+            actual_episodes = get_actual_episode_count(session_id=i['session'])
+            if actual_episodes > 0:
+                hmm.append(actual_episodes)
+            else:
+                # Fallback to search API value
+                hmm.append(i['episodes'])
             hmm.append(i['status'])
             hmm.append(i['year'])
             hmm.append(i['score'])
             hmm.append(i['session'])
             clean_data.append(hmm)
+        print()  # New line after progress
     except (KeyError, TypeError) as e:
         print(f"Error processing anime data: {str(e)}")
         print(f"Sample data item: {anime_list[0] if anime_list else 'No items'}")
