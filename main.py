@@ -1,4 +1,5 @@
-import grequests
+# grequests removed - causes gevent conflicts with ThreadPoolExecutor
+# import grequests
 import tqdm
 import os
 import kwik_token   # Import kwik_token module
@@ -114,34 +115,53 @@ print("Episode Range : ", episode_range)
 
 
 # Fetch episode IDs
-episode_ids = pahe.mid_apahe(session_id=anime_id, episode_range=episode_range)
+# mid_apahe now returns list of tuples: [(episode_number, session_id), ...]
+episode_data = pahe.mid_apahe(session_id=anime_id, episode_range=episode_range)
+
+print(f"Found {len(episode_data)} episode(s) in API response")
+
+# Extract session IDs and create mapping from index to episode number
+episode_ids = []
+episode_index_to_number = {}  # Maps index in episode_ids to actual episode number
+for idx, (ep_num, session_id) in enumerate(episode_data):
+    episode_ids.append(session_id)
+    episode_index_to_number[idx] = ep_num
+
+print(f"Fetching download links for {len(episode_ids)} episode(s)...")
 
 # Fetch episode download links
 episodes_data = pahe.dl_apahe1(anime_id=anime_id, episode_ids=episode_ids)
 
+print(f"Successfully fetched download links for {len(episodes_data)} episode(s)")
+if len(episodes_data) < len(episode_ids):
+    failed_indices = set(range(len(episode_ids))) - set(episodes_data.keys())
+    failed_episodes = [episode_index_to_number[idx] for idx in failed_indices if idx in episode_index_to_number]
+    print(f"Warning: {len(failed_indices)} episode(s) failed to fetch: {failed_episodes}")
+
 
 # Organize episode data
 # episodes_data keys are indices (0, 1, 2, ...) corresponding to episode_ids list
-# We need to map these indices to actual episode numbers
+# We need to map these indices to actual episode numbers using episode_index_to_number
 episodes = {}
 # Sort the keys to ensure we process episodes in order
 for key in sorted(episodes_data.keys()):
     # key is the index in episode_ids list (0-based)
-    # Map it to the actual episode number
-    episode_number = episode_range[0] + key
-    value = episodes_data[key]
-    sorted_links = {}
-    for link_info in value:
-        link, size, lang = link_info
-        size = int(size.split('p')[0])
-        if lang == '':
-            lang = 'jpn'
-        if lang not in sorted_links:
-            sorted_links[lang] = {}
-        if size not in sorted_links[lang]:
-            sorted_links[lang][size] = []
-        sorted_links[lang][size].append(link)
-    episodes[episode_number] = sorted_links
+    # Map it to the actual episode number using our mapping
+    if key in episode_index_to_number:
+        episode_number = episode_index_to_number[key]
+        value = episodes_data[key]
+        sorted_links = {}
+        for link_info in value:
+            link, size, lang = link_info
+            size = int(size.split('p')[0])
+            if lang == '':
+                lang = 'jpn'
+            if lang not in sorted_links:
+                sorted_links[lang] = {}
+            if size not in sorted_links[lang]:
+                sorted_links[lang][size] = []
+            sorted_links[lang][size].append(link)
+        episodes[episode_number] = sorted_links
 
 
 

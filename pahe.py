@@ -1,4 +1,5 @@
-import grequests
+# grequests removed - causes gevent conflicts with ThreadPoolExecutor
+# import grequests
 import requests
 import re
 import os
@@ -382,7 +383,9 @@ def mid_apahe(session_id: str , episode_range: list) -> list:
     end_page = ((end_episode - 1) // 30) + 1
     
     global url, USE_PLAYWRIGHT, USE_CURL_CFFI
-    all_episodes = []  # Store all episodes in order
+    # Store episodes as dict: {episode_number: session_id}
+    # This ensures we get the correct episodes even if there are gaps
+    episodes_dict = {}
     
     # Fetch all needed pages
     for page in range(start_page, end_page + 1):
@@ -401,8 +404,11 @@ def mid_apahe(session_id: str , episode_range: list) -> list:
                 # If we got valid JSON with data field, proceed even if status code was not 200
                 if 'data' in page_data:
                     for i in page_data['data']:
-                        session_id_ep = str(i['session'])
-                        all_episodes.append(session_id_ep)
+                        # Get the actual episode number from the API response
+                        episode_num = i.get('episode', None)
+                        if episode_num is not None:
+                            session_id_ep = str(i['session'])
+                            episodes_dict[episode_num] = session_id_ep
                 else:
                     # Got JSON but no data field
                     if r.status_code != 200:
@@ -423,44 +429,22 @@ def mid_apahe(session_id: str , episode_range: list) -> list:
             print(f"URL: {url2}")
             continue
     
-    # Calculate the correct slice
-    # Episodes are sorted by episode_asc, so when we fetch pages:
-    # - Page 1 has episodes 1-30 (indices 0-29 in page 1's data)
-    # - Page 2 has episodes 31-60 (indices 0-29 in page 2's data)
-    # - etc.
+    # Now extract episodes in the requested range based on actual episode numbers
+    # Return a list of tuples: (episode_number, session_id)
+    # This allows the caller to know which episode number each session ID corresponds to
+    result = []
+    missing_episodes = []
+    for ep_num in range(start_episode, end_episode + 1):
+        if ep_num in episodes_dict:
+            result.append((ep_num, episodes_dict[ep_num]))
+        else:
+            # Episode not found - this might indicate a gap in the series
+            missing_episodes.append(ep_num)
     
-    # We've collected all episodes from the needed pages in order
-    # all_episodes[0] to all_episodes[29] = episodes from start_page
-    # all_episodes[30] to all_episodes[59] = episodes from start_page + 1 (if fetched)
-    # etc.
-    
-    # Calculate offset: position of start_episode within the fetched pages
-    # Example: if start_page=2, start_episode=33:
-    # - Page 2 starts at episode 31
-    # - Episode 33 is at position (33-31) = 2 in page 2
-    # - But since we're concatenating pages, we need: (start_page - start_page) * 30 + position_in_page
-    # - Which simplifies to just: position_in_page = (start_episode - 1) % 30
-    
-    # However, if we fetch multiple pages, we need to account for all previous pages
-    # Actually, since we only fetch from start_page to end_page, the offset is:
-    offset = (start_episode - 1) % 30
-    
-    # But wait - if start_page > 1, we're only fetching from start_page onwards
-    # So the offset should be relative to the first page we fetched
-    # If start_page = 2 and start_episode = 33:
-    # - We fetch page 2, which has episodes 31-60
-    # - Episode 33 is at index (33-31) = 2 in the fetched data
-    # - So offset = (start_episode - ((start_page - 1) * 30 + 1)) = (33 - 31) = 2
-    
-    # Calculate the first episode number in start_page
-    first_episode_in_start_page = ((start_page - 1) * 30) + 1
-    offset = start_episode - first_episode_in_start_page
-    
-    # Calculate how many episodes we need
-    count = end_episode - start_episode + 1
-    
-    # Extract the correct slice
-    result = all_episodes[offset:offset + count]
+    if missing_episodes:
+        print(f"Warning: {len(missing_episodes)} episode(s) not found in API response: {missing_episodes}")
+    else:
+        print(f"Successfully fetched {len(result)} episode(s) from API")
     
     return result
 
@@ -534,12 +518,43 @@ def dl_apahe1(anime_id: str, episode_ids: list) -> dict:
         return (index, None)
     
     # Use ThreadPoolExecutor for concurrent requests
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    # Reduce max_workers to avoid overwhelming the server and reduce gevent conflicts
+    with ThreadPoolExecutor(max_workers=5) as executor:
         futures = {executor.submit(fetch_url, index, url): index for index, url in enumerate(urls)}
         for future in as_completed(futures):
-            index, data = future.result()
-            if data is not None:
-                data_dict[index] = data
+            try:
+                index, data = future.result()
+                if data is not None:
+                    data_dict[index] = data
+            except Exception as e:
+                # Handle any exceptions from the future
+                print(f"Error processing future: {str(e)}")
+                continue
+
+    # Retry failed episodes sequentially (to avoid gevent conflicts)
+    failed_indices = []
+    for index, url in enumerate(urls):
+        if index not in data_dict:
+            failed_indices.append((index, url))
+    
+    if failed_indices:
+        print(f"Retrying {len(failed_indices)} failed episode(s) sequentially...")
+        for index, url in failed_indices:
+            try:
+                if USE_PLAYWRIGHT:
+                    response = req_session.get(url, timeout=30)
+                elif USE_CURL_CFFI:
+                    response = req_session.get(url, timeout=30)
+                else:
+                    response = req_session.get(url, timeout=30)
+                if response.status_code == 200 or (response.status_code != 200 and len(response.text) > 0):
+                    text = response.text
+                    data = re.findall(r'href="(?:([^\"]+)" target="_blank" class="dropdown-item">(?:[^\&]+)&middot; ([^\<]+))(?:<span class="badge badge-primary">(?:[^\&]+)</span> <span class="badge badge-warning text-capitalize">([^\<]+))?', text)
+                    if data:
+                        data_dict[index] = data
+                        print(f"Successfully retried episode {index + 1}")
+            except Exception as e:
+                print(f"Retry failed for episode {index + 1}: {str(e)}")
 
     return data_dict
 
