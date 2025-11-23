@@ -12,8 +12,38 @@ AnimeDownloader is your trusty sidekick in the world of anime. It's your one-sto
 - **Organized Chaos**: Downloaded episodes neatly organized into folders. No more messy downloads! 📁✨
 - **Quality Control**: Choose your video resolution and quality, like a true anime connoisseur. 📐👀
 - **No Language Barrier**: Select your preferred language for that authentic experience. 🗣️🌍
+- **Modern Web UI**: Beautiful React frontend with black and white theme (NEW! 🎨)
+- **CLI & Web**: Use either the terminal interface or the web interface - your choice! 💻🌐
 
 ## How to Get Started 🚀
+
+### Option 1: Web Interface (Recommended) 🌐
+
+1. **Install Python dependencies:**
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **Start the backend API server:**
+
+   ```bash
+   python api_server.py
+   ```
+
+3. **In a new terminal, set up and start the frontend:**
+
+   ```bash
+   cd frontend
+   npm install
+   npm run dev
+   ```
+
+4. **Open your browser to `http://localhost:3000`** and start downloading! 🎉
+
+See [FRONTEND_SETUP.md](./FRONTEND_SETUP.md) for detailed frontend setup instructions.
+
+### Option 2: CLI Interface 💻
 
 1. Clone the repository.
 2. Install the required Python libraries using `pip install -r requirements.txt`.
@@ -21,9 +51,10 @@ AnimeDownloader is your trusty sidekick in the world of anime. It's your one-sto
 
 ### Windows Users
 
-1. Navigate to the `Windows` folder in the script directory.
+1. Navigate to the script directory.
 2. Install the required Python libraries using `pip install -r requirements.txt`.
-3. Run the `main.py` script and let the anime magic begin! 🧙
+3. For CLI: Run `main.py`
+4. For Web UI: Follow Option 1 above
 
 ## AnimePahe Magic ◕⩊◕
 

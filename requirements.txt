@@ -7,3 +7,6 @@ tqdm
 colorama
 simple_term_menu
 questionary
+fastapi
+uvicorn
+pydantic
