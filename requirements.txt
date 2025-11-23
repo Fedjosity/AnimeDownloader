@@ -6,3 +6,4 @@ playwright
 tqdm
 colorama
 simple_term_menu
+questionary
