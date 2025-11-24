@@ -1,3 +1,5 @@
+import asyncio
+asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 # grequests removed - causes gevent conflicts with ThreadPoolExecutor
 # import grequests
 import requests
@@ -26,8 +28,12 @@ try:
         )
     except Exception as e:
         # If playwright fails to initialize, fall through to curl_cffi
+        import traceback
+        print("\n[Playwright Initialization Error]\n", flush=True)
+        traceback.print_exc()
+        print("Falling back to curl_cffi", flush=True)
         USE_PLAYWRIGHT = False
-        raise ImportError(f"Playwright initialization failed: {e}")
+        # Do not raise ImportError; just fallback
     # Create a requests-like session using playwright
     class PlaywrightSession:
         def __init__(self, context):

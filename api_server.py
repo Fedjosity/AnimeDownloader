@@ -1,24 +1,25 @@
+import asyncio
+asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 """
 FastAPI server to expose the anime downloader backend functionality.
 This server acts as a bridge between the React frontend and the Python CLI backend.
 """
 
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
 import os
-import sys
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
-
-import asyncio
-asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+os.environ["PLAYWRIGHT_BROWSERS_PATH"] = r"C:\Users\User\AppData\Local\ms-playwright"
 
 
 # Import the backend modules
 import pahe
 import kwik_token
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List, Optional, Dict, Any
+import sys
+from concurrent.futures import ThreadPoolExecutor
+
 
 app = FastAPI(title="AnimeDownloader API", version="1.0.0")
 
@@ -77,32 +78,59 @@ async def root():
 
 @app.post("/api/search", response_model=List[AnimeInfo])
 async def search_anime(request: SearchRequest):
-    """Search for anime by query"""
-    try:
-        loop = asyncio.get_event_loop()
-        results = await loop.run_in_executor(
-            executor, pahe.search_apahe, request.query
-        )
-        
-        if not results:
-            return []
-        
-        # Convert to AnimeInfo models
-        anime_list = []
-        for anime in results:
-            anime_list.append(AnimeInfo(
-                title=anime[0],
-                type=anime[1],
-                episodes=anime[2],
-                status=anime[3],
-                year=anime[4],
-                score=anime[5],
-                session_id=anime[6]
-            ))
-        
-        return anime_list
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    max_retries = 3
+    retry_count = 0
+
+    while retry_count < max_retries:
+        try:
+            loop = asyncio.get_event_loop()
+            results = await loop.run_in_executor(
+                executor, pahe.search_apahe, request.query
+            )
+            if not results:
+                return []
+            # Convert to AnimeInfo models
+            anime_list = []
+            for anime in results:
+                anime_list.append(AnimeInfo(
+                    title=anime[0],
+                    type=anime[1],
+                    episodes=anime[2],
+                    status=anime[3],
+                    year=anime[4],
+                    score=anime[5],
+                    session_id=anime[6]
+                ))
+            return anime_list
+        except Exception as e:
+            retry_count += 1
+            error_msg = str(e)
+            # DDoS-Guard or anti-bot detected
+            if '403' in error_msg or 'DDoS-Guard' in error_msg or 'non-JSON' in error_msg:
+                if retry_count < max_retries:
+                    await asyncio.sleep(1.5)
+                    continue
+                else:
+                    playwright_status = (
+                        "active" if getattr(pahe, 'USE_PLAYWRIGHT', False)
+                        else (
+                            "not active (using curl_cffi)" if getattr(pahe, 'USE_CURL_CFFI', False)
+                            else "not installed or not working"
+                        )
+                    )
+                    error_detail = (
+                        "Service temporarily unavailable due to website DDoS protection.<br>"
+                        f"Playwright status: <b>{playwright_status}</b>.<br>"
+                        "To fix: Run <b>pip install playwright && playwright install chromium</b> and restart the backend.<br>"
+                        "If you cannot install Playwright or the error persists, try using the CLI: <code>python main.py</code><br>"
+                        "If you think you have Playwright but still get this problem, ensure Python and Node.js are up to date."
+                    )
+                    raise HTTPException(status_code=503, detail=error_detail)
+            else:
+                # Unexpected error
+                raise HTTPException(status_code=500, detail=f"Search failed: {error_msg}")
+    # Failsafe
+    raise HTTPException(status_code=500, detail="Search failed after retries")
 
 
 @app.get("/api/anime/{session_id}/episodes")
