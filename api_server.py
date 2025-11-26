@@ -1,13 +1,10 @@
+import sys
 import asyncio
 asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 """
 FastAPI server to expose the anime downloader backend functionality.
 This server acts as a bridge between the React frontend and the Python CLI backend.
 """
-
-import os
-os.environ["PLAYWRIGHT_BROWSERS_PATH"] = r"C:\Users\User\AppData\Local\ms-playwright"
-
 
 # Import the backend modules
 import pahe
